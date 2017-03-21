@@ -299,33 +299,36 @@ class StackOverflow extends Serializable {
     val closest = vectors.map(p => (findClosest(p, means), p))
     val closestGrouped = closest.groupByKey()
 
-    val vectorsCount = vectors.count
-
     val median = closestGrouped.mapValues { vs =>
 
-      val mostCommonLangInCluster: Int = vs                     // Iterable[(Int, Int)]
-        .groupBy { case (langPoint, _) => langPoint }           // Map[Int, Iterable[(Int, Int)]]
-        .map { case (lang, scores) => (lang, scores.size) }     // Map[Int, Int]
-        .toList                                                 // List[(Int, Int)]
-        .sortBy { case (lang, occ) => -occ }                    // List[(Int, Int)]
-        .head                                                   // (Int, Int)
-        ._1                                                     // Int
+      val mostCommongLangPoint: Int = vs                               // Iterable[(Int, Int)]
+        .groupBy { case (langPoint, _) => langPoint }                  // Map[Int, Iterable[(Int, Int)]]
+        .map { case (langPoint, scores) => (langPoint, scores.size) }  // Map[Int, Int]
+        .toList                                                        // List[(Int, Int)]
+        .sortBy { case (lang, occ) => -occ }                           // List[(Int, Int)]
+        .head                                                          // (Int, Int)
+        ._1                                                            // Int
 
       // most common language in the cluster
-      val langLabel: String =
-        langs(mostCommonLangInCluster / langSpread)
+      val langLabel: String = langs(mostCommongLangPoint / langSpread)
 
       // percent of the questions in the most common language
       val langPercent: Double =
-        100.0 * vs.size / vectorsCount
+        100.0 * vs.count { case (langPoint, _) => langPoint == mostCommongLangPoint } / vs.size
 
       val clusterSize: Int = vs.size
 
       val medianScore: Int = {
-        val reducted = vs                                         // Iterable[(Int, Int)]
-          .map { case (_, score) => (score, 1) }                  // Iterable[(Int, Int)]
-          .reduceLeft { (a, b) => (a._1 + b._1, a._2 + b._2) }    // (Int, Int)
-        reducted._1 / reducted._2
+        val sortedScores = vs
+          .map { case (langPoint, score) => score }
+          .toList
+          .sorted
+
+        val middle = sortedScores.size / 2
+        if (sortedScores.size % 2 == 0)
+          (sortedScores(middle) + sortedScores(middle - 1)) / 2
+        else
+          sortedScores(middle)
       }
 
       (langLabel, langPercent, clusterSize, medianScore)
