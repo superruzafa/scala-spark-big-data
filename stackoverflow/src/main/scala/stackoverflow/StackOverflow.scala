@@ -78,7 +78,18 @@ class StackOverflow extends Serializable {
 
   /** Group the questions and answers together */
   def groupedPostings(postings: RDD[Posting]): RDD[(Int, Iterable[(Posting, Posting)])] = {
-    ???
+    val questions = postings                            // RDD[Posting]
+      .filter { post => post.postingType == 1 }         // RDD[Posting]
+      .map { question => (question.id, question) }      // RDD[Posting]
+
+    val answers = postings                              // RDD[Posting]
+      .filter { post => post.postingType == 2 }         // RDD[Posting]
+      .flatMap { answer => answer.parentId match {      // RDD[Posting]
+        case Some(id) => Some(id, answer)
+        case None => None
+      } }
+
+    questions.join(answers).groupByKey
   }
 
 
@@ -97,7 +108,10 @@ class StackOverflow extends Serializable {
       highScore
     }
 
-    ???
+    grouped                                                      // RDD[(Int, Iterable[(Posting, Posting)])]
+      .flatMap { case (id, qas) => qas }                         // RDD[(Posting, Posting)]
+      .groupByKey                                                // RDD[(Posting, Iterable[Posting])]
+      .mapValues { answers => answerHighScore(answers.toArray) } // RDD[(Posting, Int)]
   }
 
 
@@ -117,7 +131,12 @@ class StackOverflow extends Serializable {
       }
     }
 
-    ???
+    scored.flatMap { case (question, higherScore) =>
+      firstLangInTag(question.tags, langs) match {
+        case Some(langIndex) => Some(langIndex * langSpread, higherScore)
+        case None => None
+      }
+    }
   }
 
 
@@ -172,9 +191,17 @@ class StackOverflow extends Serializable {
 
   /** Main kmeans computation */
   @tailrec final def kmeans(means: Array[(Int, Int)], vectors: RDD[(Int, Int)], iter: Int = 1, debug: Boolean = false): Array[(Int, Int)] = {
-    val newMeans = means.clone() // you need to compute newMeans
+    val newMeans = means.clone();
 
-    // TODO: Fill in the newMeans array
+    vectors                                                   // RDD[(Int, Int)]
+      .map { v => (findClosest(v, means), v) }                // RDD[(Int, (Int, Int))]
+      .groupByKey                                             // RDD[(Int, Iterable[(Int, Int)])]
+      .mapValues { averageVectors }                           // RDD[(Int, (Int, Int))]
+      .collect                                                // Array[(Int, (Int, Int))]
+      .foreach { case (index, averageMean) =>
+        newMeans(index) = averageMean
+      }
+
     val distance = euclideanDistance(means, newMeans)
 
     if (debug) {
@@ -272,11 +299,34 @@ class StackOverflow extends Serializable {
     val closest = vectors.map(p => (findClosest(p, means), p))
     val closestGrouped = closest.groupByKey()
 
+    val vectorsCount = vectors.count
+
     val median = closestGrouped.mapValues { vs =>
-      val langLabel: String   = ??? // most common language in the cluster
-      val langPercent: Double = ??? // percent of the questions in the most common language
-      val clusterSize: Int    = ???
-      val medianScore: Int    = ???
+
+      val mostCommonLangInCluster: Int = vs                     // Iterable[(Int, Int)]
+        .groupBy { case (langPoint, _) => langPoint }           // Map[Int, Iterable[(Int, Int)]]
+        .map { case (lang, scores) => (lang, scores.size) }     // Map[Int, Int]
+        .toList                                                 // List[(Int, Int)]
+        .sortBy { case (lang, occ) => -occ }                    // List[(Int, Int)]
+        .head                                                   // (Int, Int)
+        ._1                                                     // Int
+
+      // most common language in the cluster
+      val langLabel: String =
+        langs(mostCommonLangInCluster / langSpread)
+
+      // percent of the questions in the most common language
+      val langPercent: Double =
+        100.0 * vs.size / vectorsCount
+
+      val clusterSize: Int = vs.size
+
+      val medianScore: Int = {
+        val reducted = vs                                         // Iterable[(Int, Int)]
+          .map { case (_, score) => (score, 1) }                  // Iterable[(Int, Int)]
+          .reduceLeft { (a, b) => (a._1 + b._1, a._2 + b._2) }    // (Int, Int)
+        reducted._1 / reducted._2
+      }
 
       (langLabel, langPercent, clusterSize, medianScore)
     }
