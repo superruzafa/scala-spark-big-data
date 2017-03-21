@@ -136,7 +136,7 @@ class StackOverflow extends Serializable {
         case Some(langIndex) => Some(langIndex * langSpread, higherScore)
         case None => None
       }
-    }
+    }.cache()
   }
 
 
