@@ -30,8 +30,8 @@ object TimeUsage {
     val (columns, initDf) = read("/timeusage/atussum.csv")
     val (primaryNeedsColumns, workColumns, otherColumns) = classifiedColumns(columns)
     val summaryDf = timeUsageSummary(primaryNeedsColumns, workColumns, otherColumns, initDf)
-    val finalDf = timeUsageGrouped(summaryDf)
-    finalDf.show()
+    // val finalDf = timeUsageGrouped(summaryDf)
+    // finalDf.show()
   }
 
   /** @return The read DataFrame along with its column names. */
@@ -64,19 +64,16 @@ object TimeUsage {
     */
   def dfSchema(columnNames: List[String]): StructType = {
     val (idName :: restNames) = columnNames
-    val idColumn = StructField(idName, StringType, false)
-    val restColumns = restNames.map { name => StructField(name, DoubleType, false) }
+    val idColumn = StructField(idName, StringType, nullable = false)
+    val restColumns = restNames.map { name => StructField(name, DoubleType, nullable = false) }
     StructType(idColumn :: restColumns)
   }
 
   /** @return An RDD Row compatible with the schema produced by `dfSchema`
     * @param line Raw fields
     */
-  def row(line: List[String]): Row = {
-    val (firstField :: restFields) = line
-    val typedRestFields = restFields.map { _.toDouble }
-    return Row(firstField :: typedRestFields)
-  }
+  def row(line: List[String]): Row =
+    Row.fromSeq(line.head :: line.tail.map { _.toDouble })
 
   /** @return The initial data frame columns partitioned in three groups: primary needs (sleeping, eating, etc.),
     *         work and other (leisure activities)
@@ -94,14 +91,33 @@ object TimeUsage {
     *    “t10”, “t12”, “t13”, “t14”, “t15”, “t16” and “t18” (those which are not part of the previous groups only).
     */
   def classifiedColumns(columnNames: List[String]): (List[Column], List[Column], List[Column]) = {
-    (
-      List($"t01", $"t03", $"t11", $"t1801", $"t1803"),
-      List($"t05", $"t1805"),
-      List(
-        $"t02", $"t04", $"t06", $"t07", $"t08", $"t09",
-        $"t10", $"t12", $"t13", $"t14", $"t15", $"t16", $"t18"
-      )
+    val primaryNeedsPrefixes = List("t01", "t03", "t11", "t1801", "t1803")
+    val workingPrefixes = List("t05", "t1805")
+    val otherPrefixes = List(
+      "t02", "t04", "t06", "t07", "t08", "t09",
+      "t10", "t12", "t13", "t14", "t15", "t16", "t18"
     )
+    def belongsToActivity(name: String, activityPrefixes: List[String]): Boolean = {
+      activityPrefixes.exists { prefix => name.startsWith(prefix) }
+    }
+
+    def asColumn(name: String): Column = col(name)
+
+    val primaryNeeds = columnNames
+      .filter { c => belongsToActivity(c, primaryNeedsPrefixes) }
+      .map { asColumn }
+    val working = columnNames
+      .filter { c => belongsToActivity(c, workingPrefixes) }
+      .map { asColumn }
+    val other = columnNames
+      .filter { c =>
+        belongsToActivity(c, otherPrefixes) &&
+        !belongsToActivity(c, primaryNeedsPrefixes) &&
+        !belongsToActivity(c, workingPrefixes)
+      }
+      .map { asColumn }
+
+    (primaryNeeds, working, other)
   }
 
   /** @return a projection of the initial DataFrame such that all columns containing hours spent on primary needs
@@ -140,13 +156,24 @@ object TimeUsage {
     otherColumns: List[Column],
     df: DataFrame
   ): DataFrame = {
-    val workingStatusProjection: Column = ???
-    val sexProjection: Column = ???
-    val ageProjection: Column = ???
+    def sumHours(cs: List[Column]): Column = cs.reduceLeft(_ + _) / lit(60)
+    def between(c: Column, lower: Int, upper: Int): Column =
+      c >= lower && c <= upper
 
-    val primaryNeedsProjection: Column = ???
-    val workProjection: Column = ???
-    val otherProjection: Column = ???
+    val workingStatusProjection: Column =
+      when(between($"telfs", 1, 2), "working")
+      .otherwise("not working")
+    val sexProjection: Column =
+      when($"tesex" === 1, "male")
+      .otherwise("female")
+    val ageProjection: Column =
+      when(between($"teage", 15, 22), "young")
+      .when(between($"teage", 23, 55), "active")
+      .otherwise("elder")
+
+    val primaryNeedsProjection: Column = sumHours(primaryNeedsColumns)
+    val workProjection: Column = sumHours(workColumns)
+    val otherProjection: Column = sumHours(otherColumns)
     df
       .select(workingStatusProjection, sexProjection, ageProjection, primaryNeedsProjection, workProjection, otherProjection)
       .where($"telfs" <= 4) // Discard people who are not in labor force
