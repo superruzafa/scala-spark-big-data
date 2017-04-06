@@ -30,8 +30,14 @@ object TimeUsage {
     val (columns, initDf) = read("/timeusage/atussum.csv")
     val (primaryNeedsColumns, workColumns, otherColumns) = classifiedColumns(columns)
     val summaryDf = timeUsageSummary(primaryNeedsColumns, workColumns, otherColumns, initDf)
-    val finalDf = timeUsageGrouped(summaryDf)
+
+    // val finalDf = timeUsageGrouped(summaryDf)
+    // val finalDf = timeUsageGroupedSql(summaryDf)
     finalDf.show()
+
+    // val summaryDs: Dataset[TimeUsageRow] = timeUsageSummaryTyped(summaryDf)
+    // val finalDs = timeUsageGroupedTyped(summaryDs)
+    // finalDs.show()
   }
 
   /** @return The read DataFrame along with its column names. */
@@ -241,7 +247,7 @@ object TimeUsage {
     * cast them at the same time.
     */
   def timeUsageSummaryTyped(timeUsageSummaryDf: DataFrame): Dataset[TimeUsageRow] =
-    ???
+    timeUsageSummaryDf.as[TimeUsageRow]
 
   /**
     * @return Same as `timeUsageGrouped`, but using the typed API when possible
@@ -256,7 +262,17 @@ object TimeUsage {
     */
   def timeUsageGroupedTyped(summed: Dataset[TimeUsageRow]): Dataset[TimeUsageRow] = {
     import org.apache.spark.sql.expressions.scalalang.typed
-    ???
+    summed
+      .groupByKey { row => (row.working, row.sex, row.age) }
+      .agg(
+        round(avg($"primaryNeeds"), 1).as[Double],
+        round(avg($"work"), 1).as[Double],
+        round(avg($"other"), 1).as[Double]
+      )
+      .map { case ((working, sex, age), primaryNeeds, work, other) =>
+        TimeUsageRow(working, sex, age, primaryNeeds, work, other)
+      }
+      .orderBy($"working", $"sex", $"age")
   }
 }
 
