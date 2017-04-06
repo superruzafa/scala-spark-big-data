@@ -30,8 +30,8 @@ object TimeUsage {
     val (columns, initDf) = read("/timeusage/atussum.csv")
     val (primaryNeedsColumns, workColumns, otherColumns) = classifiedColumns(columns)
     val summaryDf = timeUsageSummary(primaryNeedsColumns, workColumns, otherColumns, initDf)
-    // val finalDf = timeUsageGrouped(summaryDf)
-    // finalDf.show()
+    val finalDf = timeUsageGrouped(summaryDf)
+    finalDf.show()
   }
 
   /** @return The read DataFrame along with its column names. */
@@ -163,17 +163,20 @@ object TimeUsage {
     val workingStatusProjection: Column =
       when(between($"telfs", 1, 2), "working")
       .otherwise("not working")
+      .as("working")
     val sexProjection: Column =
       when($"tesex" === 1, "male")
       .otherwise("female")
+      .as("sex")
     val ageProjection: Column =
       when(between($"teage", 15, 22), "young")
       .when(between($"teage", 23, 55), "active")
       .otherwise("elder")
+      .as("age")
 
-    val primaryNeedsProjection: Column = sumHours(primaryNeedsColumns)
-    val workProjection: Column = sumHours(workColumns)
-    val otherProjection: Column = sumHours(otherColumns)
+    val primaryNeedsProjection: Column = sumHours(primaryNeedsColumns).as("primaryNeeds")
+    val workProjection: Column = sumHours(workColumns).as("work")
+    val otherProjection: Column = sumHours(otherColumns).as("other")
     df
       .select(workingStatusProjection, sexProjection, ageProjection, primaryNeedsProjection, workProjection, otherProjection)
       .where($"telfs" <= 4) // Discard people who are not in labor force
@@ -197,7 +200,14 @@ object TimeUsage {
     * Finally, the resulting DataFrame should be sorted by working status, sex and age.
     */
   def timeUsageGrouped(summed: DataFrame): DataFrame = {
-    ???
+    summed
+      .groupBy($"working", $"sex", $"age")
+      .agg(
+        round(avg($"primaryNeeds"), 1).as("primaryNeeds"),
+        round(avg($"work"), 1).as("work"),
+        round(avg($"other"), 1).as("other")
+      )
+      .orderBy($"working", $"sex", $"age")
   }
 
   /**
