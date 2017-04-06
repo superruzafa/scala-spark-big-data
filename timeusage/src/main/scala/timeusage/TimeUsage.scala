@@ -31,7 +31,7 @@ object TimeUsage {
     val (primaryNeedsColumns, workColumns, otherColumns) = classifiedColumns(columns)
     val summaryDf = timeUsageSummary(primaryNeedsColumns, workColumns, otherColumns, initDf)
 
-    // val finalDf = timeUsageGrouped(summaryDf)
+    val finalDf = timeUsageGrouped(summaryDf)
     // val finalDf = timeUsageGroupedSql(summaryDf)
     finalDf.show()
 
