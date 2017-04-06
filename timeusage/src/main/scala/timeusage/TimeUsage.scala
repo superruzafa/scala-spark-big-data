@@ -223,8 +223,15 @@ object TimeUsage {
   /** @return SQL query equivalent to the transformation implemented in `timeUsageGrouped`
     * @param viewName Name of the SQL view to use
     */
-  def timeUsageGroupedSqlQuery(viewName: String): String =
-    ???
+  def timeUsageGroupedSqlQuery(viewName: String): String = s"""
+      SELECT working, sex, age,
+             ROUND(AVG(primaryNeeds), 1) AS primaryNeeds,
+             ROUND(AVG(work), 1) AS work,
+             ROUND(AVG(other), 1) AS other
+        FROM $viewName
+    GROUP BY working, sex, age
+    ORDER BY working, sex, age
+    """
 
   /**
     * @return A `Dataset[TimeUsageRow]` from the “untyped” `DataFrame`
